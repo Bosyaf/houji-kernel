@@ -1,4 +1,4 @@
-name: Build Xiaomi 14 Houji (Final-Success-V10)
+name: Build Xiaomi 14 Houji (Final-Fix-V11)
 
 on:
   workflow_dispatch:
@@ -22,11 +22,21 @@ jobs:
 
       - name: Clone MiCode Source (Shennong-U-OSS)
         run: |
-          # Resmi MiCode deposundan senin dalını (branch) klonluyoruz
+          # Resmi MiCode deposunu senin verdigin link üzerinden klonluyoruz
           git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b shennong-u-oss kernel-source
           cd kernel-source
-          # KernelSU (Caglar Edition)
+          # KernelSU Kurulumu
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+
+      - name: Fix Broken Xiaomi Kconfigs (The Bypass)
+        run: |
+          cd kernel-source
+          # HATA ÇÖZÜMÜ: Eksik olan hwid dosyasını boş olarak oluşturuyoruz
+          mkdir -p drivers/misc/hwid
+          touch drivers/misc/hwid/Kconfig
+          # Genelde hata veren diger eksik dosyalari da onlem olarak aciyoruz
+          mkdir -p drivers/misc/mainline
+          touch drivers/misc/mainline/Kconfig
 
       - name: Setup Toolchain (Clang 22)
         run: |
@@ -40,7 +50,6 @@ jobs:
           cd kernel-source
           export PATH=$GITHUB_WORKSPACE/clang-22/bin:$PATH
           
-          # HATA ÇÖZÜMÜ: Senin verdiğin tam yolları kullanıyoruz
           # 1. Temel GKI yükle
           make O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
           
@@ -61,14 +70,14 @@ jobs:
             echo "CONFIG_MODVERSIONS=n"
           } >> out/.config
           
-          # 5. Final config doğrulaması
+          # Final ayar doğrulaması
           make O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
-      - name: Build Houji (The Final Victory)
+      - name: Build Houji (Final Victory)
         run: |
           cd kernel-source
           export PATH=$GITHUB_WORKSPACE/clang-22/bin:$PATH
-          # SKIP_ABI=1: 9 saatlik sinir bozukluğunu bu komutla bitiriyoruz.
+          # SKIP_ABI=1: Son saniye golü yememek için şart.
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- SKIP_ABI=1
 
       - name: Upload Image
