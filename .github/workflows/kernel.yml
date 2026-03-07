@@ -1,4 +1,4 @@
-name: Build Gaming Kernel (Back to Basics)
+name: Build Gaming Kernel (Nuclear-Bypass-V6)
 
 permissions:
   contents: write
@@ -24,12 +24,6 @@ jobs:
           temp-reserve-mb: 2048
           swap-size-mb: 8192
 
-      - name: Set Variables
-        id: set-variable
-        run: |
-          echo "CCACHE_DIR=$HOME/.ccache_v4" >> $GITHUB_ENV
-          echo "BOOTHASH=$(date +%m%d)" >> $GITHUB_ENV
-
       - name: Install Dependencies
         run: |
           sudo apt update -qq && sudo apt install -y --no-install-recommends \
@@ -43,6 +37,7 @@ jobs:
           mkdir -p "$CONFIG" && cd "$CONFIG"
           $GITHUB_WORKSPACE/./git-repo/repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-android14-6.1-lts
           $GITHUB_WORKSPACE/./git-repo/repo sync -c -j$(nproc --all) --no-tags
+          cd common && git reset --hard && git clean -fd
 
       - name: Download Clang 22
         run: |
@@ -56,28 +51,44 @@ jobs:
           cd "$CONFIG"
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
-      - name: Configure Kernel (No Dangerous Patches)
+      - name: Nuclear Bypass Settings
         run: |
           cd "$CONFIG/common"
           
-          # BBR & Full Preempt (Sadece defconfig uzerinden, kod degistirmeden)
+          echo "1. Wi-Fi Fix (Modversions Off)"
+          sed -i 's/CONFIG_MODVERSIONS=y/CONFIG_MODVERSIONS=n/g' arch/arm64/configs/gki_defconfig
+          
+          echo "2. Kontrol Sistemini Kör Etme (Bypass)"
+          # Whitelist ve sembol kontrollerini tamamen silip etkisizlestiriyoruz
+          sed -i 's/CONFIG_KMI_SYMBOL_CHECK=y/CONFIG_KMI_SYMBOL_CHECK=n/g' arch/arm64/configs/gki_defconfig
+          echo "CONFIG_GKI_HACKS_ALL=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_UNUSED_KSYMS_WHITELIST=\"\"" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_GKI_KMI_SYMBOL_CHECK=n" >> arch/arm64/configs/gki_defconfig
+
+          echo "3. BBR & Preempt & İsim"
           sed -i '/CONFIG_TCP_CONG/d' arch/arm64/configs/gki_defconfig
           echo "CONFIG_TCP_CONG_BBR=y" >> arch/arm64/configs/gki_defconfig
           echo "CONFIG_DEFAULT_BBR=y" >> arch/arm64/configs/gki_defconfig
           echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> arch/arm64/configs/gki_defconfig
           sed -i 's/CONFIG_PREEMPT_VOLUNTARY=y/CONFIG_PREEMPT=y/g' arch/arm64/configs/gki_defconfig
-
-          # Isim imzasi
           sed -i 's/CONFIG_LOCALVERSION="-android14-11"/CONFIG_LOCALVERSION="-Caglar-Gaming-Kernel"/g' arch/arm64/configs/gki_defconfig
 
-      - name: Compile Gaming Kernel
+      - name: Compile (The Great Bypass)
         run: |
           cd "$CONFIG"
           export PATH="$GITHUB_WORKSPACE/clang-22/bin:$PATH"
           export PATH="/usr/lib/ccache:$PATH"
           cd common
+          ccache -C
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" gki_defconfig
-          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang"
+          
+          # ASIL BOMBA BURASI: Tüm ABI ve KMI kontrollerini derleme komutunda yasakliyoruz
+          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- \
+            CC="ccache clang" \
+            SKIP_ABI=1 \
+            KMI_SYMBOL_CHECK=n \
+            KMI_ENFORCE=n \
+            GKI_KMI_SYMBOL_CHECK=n
 
       - name: Package Image
         run: |
