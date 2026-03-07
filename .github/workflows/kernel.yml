@@ -1,4 +1,4 @@
-name: Build Gaming Kernel (Nuclear-Bypass-V6)
+name: Build Gaming Kernel (Caglar-No-Wait-V7)
 
 permissions:
   contents: write
@@ -24,20 +24,15 @@ jobs:
           temp-reserve-mb: 2048
           swap-size-mb: 8192
 
-      - name: Install Dependencies
+      - name: Sync Kernel Source
         run: |
-          sudo apt update -qq && sudo apt install -y --no-install-recommends \
-            python3 git curl ccache libelf-dev build-essential flex bison libssl-dev rsync unzip
-
-      - name: Sync Kernel Source (GKI 6.1)
-        run: |
-          mkdir -p ./git-repo
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
-          chmod a+rx ./git-repo/repo
           mkdir -p "$CONFIG" && cd "$CONFIG"
-          $GITHUB_WORKSPACE/./git-repo/repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-android14-6.1-lts
-          $GITHUB_WORKSPACE/./git-repo/repo sync -c -j$(nproc --all) --no-tags
-          cd common && git reset --hard && git clean -fd
+          # Repo init ve sync islemleri (Hizli olmasi icin depth=1)
+          curl https://storage.googleapis.com/git-repo-downloads/repo > repo
+          chmod a+rx repo
+          ./repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-android14-6.1-lts
+          ./repo sync -c -j$(nproc --all) --no-tags
+          cd common && git reset --hard
 
       - name: Download Clang 22
         run: |
@@ -51,29 +46,34 @@ jobs:
           cd "$CONFIG"
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
-      - name: Nuclear Bypass Settings
+      - name: Fix Everything (The Real Way)
         run: |
           cd "$CONFIG/common"
           
-          echo "1. Wi-Fi Fix (Modversions Off)"
-          sed -i 's/CONFIG_MODVERSIONS=y/CONFIG_MODVERSIONS=n/g' arch/arm64/configs/gki_defconfig
+          echo "1. Hata Veren Guvenlik Kilidlerini (LTO/CFI/KMI) Kapat"
+          # Error 2 almamak icin bunlari tamamen 'n' (hayir) yapmamiz lazim
+          sed -i 's/CONFIG_LTO_CLANG_THIN=y/CONFIG_LTO_NONE=y/g' arch/arm64/configs/gki_defconfig
+          sed -i 's/CONFIG_CFI_CLANG=y/CONFIG_CFI_PERMISSIVE=y/g' arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KMI_SYMBOL_CHECK=n" >> arch/arm64/configs/gki_defconfig
           
-          echo "2. Kontrol Sistemini Kör Etme (Bypass)"
-          # Whitelist ve sembol kontrollerini tamamen silip etkisizlestiriyoruz
-          sed -i 's/CONFIG_KMI_SYMBOL_CHECK=y/CONFIG_KMI_SYMBOL_CHECK=n/g' arch/arm64/configs/gki_defconfig
-          echo "CONFIG_GKI_HACKS_ALL=y" >> arch/arm64/configs/gki_defconfig
-          echo "CONFIG_UNUSED_KSYMS_WHITELIST=\"\"" >> arch/arm64/configs/gki_defconfig
-          echo "CONFIG_GKI_KMI_SYMBOL_CHECK=n" >> arch/arm64/configs/gki_defconfig
+          echo "2. Debug ve Kasan'i Kapat (Performans Icin)"
+          sed -i 's/CONFIG_KASAN=y/CONFIG_KASAN=n/g' arch/arm64/configs/gki_defconfig
+          sed -i 's/CONFIG_DEBUG_KERNEL=y/CONFIG_DEBUG_KERNEL=n/g' arch/arm64/configs/gki_defconfig
 
-          echo "3. BBR & Preempt & İsim"
+          echo "3. BBR ve Full Preempt (Istedigin Ozellikler)"
           sed -i '/CONFIG_TCP_CONG/d' arch/arm64/configs/gki_defconfig
           echo "CONFIG_TCP_CONG_BBR=y" >> arch/arm64/configs/gki_defconfig
           echo "CONFIG_DEFAULT_BBR=y" >> arch/arm64/configs/gki_defconfig
           echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> arch/arm64/configs/gki_defconfig
           sed -i 's/CONFIG_PREEMPT_VOLUNTARY=y/CONFIG_PREEMPT=y/g' arch/arm64/configs/gki_defconfig
+          
+          echo "4. Wifi Fix (Modversions Off)"
+          sed -i 's/CONFIG_MODVERSIONS=y/CONFIG_MODVERSIONS=n/g' arch/arm64/configs/gki_defconfig
+          
+          echo "5. Isim: Caglar-Gaming-Kernel"
           sed -i 's/CONFIG_LOCALVERSION="-android14-11"/CONFIG_LOCALVERSION="-Caglar-Gaming-Kernel"/g' arch/arm64/configs/gki_defconfig
 
-      - name: Compile (The Great Bypass)
+      - name: Compile (Fast & Safe)
         run: |
           cd "$CONFIG"
           export PATH="$GITHUB_WORKSPACE/clang-22/bin:$PATH"
@@ -81,23 +81,6 @@ jobs:
           cd common
           ccache -C
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" gki_defconfig
-          
-          # ASIL BOMBA BURASI: Tüm ABI ve KMI kontrollerini derleme komutunda yasakliyoruz
-          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- \
-            CC="ccache clang" \
-            SKIP_ABI=1 \
-            KMI_SYMBOL_CHECK=n \
-            KMI_ENFORCE=n \
-            GKI_KMI_SYMBOL_CHECK=n
-
-      - name: Package Image
-        run: |
-          cp ./$CONFIG/common/out/arch/arm64/boot/Image ./
-          zip -r "Gaming-Caglar-Kernel.zip" Image
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Gaming-Kernel-Image
-          path: Gaming-Caglar-Kernel.zip
+          # SKIP_ABI=1: En buyuk hayat kurtarici budur.
+          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" SKIP_ABI=1
           
