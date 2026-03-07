@@ -1,4 +1,4 @@
-name: Build Xiaomi 14 Houji (Official-Vendor-Fix)
+name: Build Xiaomi 14 Houji (Official-MiCode-Final)
 
 on:
   workflow_dispatch:
@@ -16,17 +16,17 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
 
-      - name: Install Safe Dependencies
+      - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential curl flex git gnupg gperf libelf-dev libncurses-dev libssl-dev python3 rsync unzip wget zip zlib1g-dev
 
-      - name: Clone Xiaomi Official Source (Shennong-U-OSS)
+      - name: Clone Official Source (MiCode)
         run: |
-          # 9 saatin intikamı: Doğru kaynak ve doğru branch
-          git clone --depth=1 https://github.com/Xiaomi/Xiaomi_Kernel_OpenSource.git -b shennong-u-oss kernel-source
+          # Senin verdigin resmi linki kullaniyoruz
+          git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b shennong-u-oss kernel-source
           cd kernel-source
-          # KernelSU (Caglar Edition)
+          # KernelSU Kurulumu (Root icin)
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
       - name: Setup Toolchain (Clang 22)
@@ -40,8 +40,8 @@ jobs:
         run: |
           cd kernel-source
           
-          # SENIN VERDIGIN YOL: arch/arm64/configs/vendor/houji_GKI.config
-          # Bu komut WiFi ve Ekran titremesini kokten cozecek "ev sahibi" ayarlarını yukler
+          # Fotoğrafta gösterdiğin yol: arch/arm64/configs/vendor/houji_GKI.config
+          # Bu komut WiFi ve Ekran titremesini cozecek Xiaomi ayarlarını yükler.
           make O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- vendor/houji_GKI.config
 
           # Caglar Gaming Tweaks
@@ -51,20 +51,20 @@ jobs:
             echo "CONFIG_DEFAULT_BBR=y"
             echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\""
             echo "CONFIG_PREEMPT=y"
-            echo "CONFIG_MODVERSIONS=n"
             echo "CONFIG_KMI_SYMBOL_CHECK=n"
+            echo "CONFIG_MODVERSIONS=n"
           } >> out/.config
 
       - name: Build Houji (The Final Victory)
         run: |
           cd kernel-source
           export PATH=$GITHUB_WORKSPACE/clang-22/bin:$PATH
-          # SKIP_ABI=1: O saniyelerce bekletip hata veren kontrolu tamamen iptal ediyoruz
+          # SKIP_ABI=1: En kritik hamle, Google'ın Error 2 veren kontrolünü burada öldürüyoruz.
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- SKIP_ABI=1
 
       - name: Upload Kernel Image
         uses: actions/upload-artifact@v4
         with:
-          name: Houji-Official-Gaming-Kernel
+          name: Houji-Caglar-Kernel
           path: kernel-source/out/arch/arm64/boot/Image
           
