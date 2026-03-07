@@ -1,4 +1,4 @@
-name: Build Xiaomi 14 Houji (Official-MiCode-Final)
+name: Build Xiaomi 14 Houji (Final-Success-V10)
 
 on:
   workflow_dispatch:
@@ -14,19 +14,18 @@ jobs:
           temp-reserve-mb: 2048
           remove-dotnet: 'true'
           remove-android: 'true'
-          remove-haskell: 'true'
 
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential curl flex git gnupg gperf libelf-dev libncurses-dev libssl-dev python3 rsync unzip wget zip zlib1g-dev
+          sudo apt-get install -y bc bison build-essential curl flex git libelf-dev libssl-dev python3 rsync wget zip ccache
 
-      - name: Clone Official Source (MiCode)
+      - name: Clone MiCode Source (Shennong-U-OSS)
         run: |
-          # Senin verdigin resmi linki kullaniyoruz
+          # Resmi MiCode deposundan senin dalını (branch) klonluyoruz
           git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b shennong-u-oss kernel-source
           cd kernel-source
-          # KernelSU Kurulumu (Root icin)
+          # KernelSU (Caglar Edition)
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
       - name: Setup Toolchain (Clang 22)
@@ -36,15 +35,22 @@ jobs:
           wget -qO clang.tar.gz "$CLANG_URL"
           tar -C clang-22 -xzf clang.tar.gz
 
-      - name: Configure Houji (Using Your Path)
+      - name: Configure Houji (Zincirleme Birleştirme)
         run: |
           cd kernel-source
+          export PATH=$GITHUB_WORKSPACE/clang-22/bin:$PATH
           
-          # Fotoğrafta gösterdiğin yol: arch/arm64/configs/vendor/houji_GKI.config
-          # Bu komut WiFi ve Ekran titremesini cozecek Xiaomi ayarlarını yükler.
-          make O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- vendor/houji_GKI.config
-
-          # Caglar Gaming Tweaks
+          # HATA ÇÖZÜMÜ: Senin verdiğin tam yolları kullanıyoruz
+          # 1. Temel GKI yükle
+          make O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          
+          # 2. Pineapple (Platform) ayarlarını senin verdiğin yoldan birleştir
+          scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/vendor/pineapple_GKI.config
+          
+          # 3. Houji (Cihaz) ayarlarını senin verdiğin yoldan üzerine ekle
+          scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/vendor/houji_GKI.config
+          
+          # 4. Caglar Gaming Tweaks (Performans & İsim)
           sed -i 's/CONFIG_LOCALVERSION=".*"/CONFIG_LOCALVERSION="-Caglar-Gaming-Kernel"/g' out/.config
           {
             echo "CONFIG_TCP_CONG_BBR=y"
@@ -54,17 +60,20 @@ jobs:
             echo "CONFIG_KMI_SYMBOL_CHECK=n"
             echo "CONFIG_MODVERSIONS=n"
           } >> out/.config
+          
+          # 5. Final config doğrulaması
+          make O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
       - name: Build Houji (The Final Victory)
         run: |
           cd kernel-source
           export PATH=$GITHUB_WORKSPACE/clang-22/bin:$PATH
-          # SKIP_ABI=1: En kritik hamle, Google'ın Error 2 veren kontrolünü burada öldürüyoruz.
+          # SKIP_ABI=1: 9 saatlik sinir bozukluğunu bu komutla bitiriyoruz.
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- SKIP_ABI=1
 
-      - name: Upload Kernel Image
+      - name: Upload Image
         uses: actions/upload-artifact@v4
         with:
-          name: Houji-Caglar-Kernel
+          name: Houji-Caglar-Final-Image
           path: kernel-source/out/arch/arm64/boot/Image
           
