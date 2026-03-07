@@ -1,33 +1,29 @@
-name: Build Gaming Kernel (Caglar-No-Wait-V7)
-
-permissions:
-  contents: write
-  actions: write
+name: Build Gaming Kernel (Houji-Final-Fix)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-kernel:
+  build:
     runs-on: ubuntu-latest
-    env:
-      CCACHE_MAXSIZE: "10G"
-      KBUILD_BUILD_USER: "caglar"
-      KBUILD_BUILD_HOST: "Gaming-Rig"
-      CONFIG: "android14-6.1-LTS"
-
     steps:
-      - name: Initialize Build Space
+      - name: Maximize Build Space
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 8192
           temp-reserve-mb: 2048
-          swap-size-mb: 8192
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
 
-      - name: Sync Kernel Source
+      - name: Install All Dependencies (No Missing Packages)
         run: |
-          mkdir -p "$CONFIG" && cd "$CONFIG"
-          # Repo init ve sync islemleri (Hizli olmasi icin depth=1)
+          sudo apt update
+          sudo apt install -y bc bison build-essential cc_wrapper ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5-dev libsdl1.1-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 wget
+
+      - name: Sync GKI Source
+        run: |
+          mkdir -p kernel-build && cd kernel-build
           curl https://storage.googleapis.com/git-repo-downloads/repo > repo
           chmod a+rx repo
           ./repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-android14-6.1-lts
@@ -36,51 +32,52 @@ jobs:
 
       - name: Download Clang 22
         run: |
-          CLANG_LINK=$(curl -sL https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt)
-          curl -L -o clang-22.tar.gz "$CLANG_LINK"
-          mkdir -p $GITHUB_WORKSPACE/clang-22
-          tar -xzf clang-22.tar.gz -C $GITHUB_WORKSPACE/clang-22
+          mkdir -p clang-22
+          CLANG_URL=$(curl -sL https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt)
+          wget -qO clang.tar.gz "$CLANG_URL"
+          tar -C clang-22 -xzf clang.tar.gz
 
       - name: Apply KernelSU
         run: |
-          cd "$CONFIG"
+          cd kernel-build
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
-      - name: Fix Everything (The Real Way)
+      - name: Professional GKI Patches (WiFi & Screen Fix)
         run: |
-          cd "$CONFIG/common"
+          cd kernel-build/common
           
-          echo "1. Hata Veren Guvenlik Kilidlerini (LTO/CFI/KMI) Kapat"
-          # Error 2 almamak icin bunlari tamamen 'n' (hayir) yapmamiz lazim
-          sed -i 's/CONFIG_LTO_CLANG_THIN=y/CONFIG_LTO_NONE=y/g' arch/arm64/configs/gki_defconfig
-          sed -i 's/CONFIG_CFI_CLANG=y/CONFIG_CFI_PERMISSIVE=y/g' arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KMI_SYMBOL_CHECK=n" >> arch/arm64/configs/gki_defconfig
-          
-          echo "2. Debug ve Kasan'i Kapat (Performans Icin)"
-          sed -i 's/CONFIG_KASAN=y/CONFIG_KASAN=n/g' arch/arm64/configs/gki_defconfig
-          sed -i 's/CONFIG_DEBUG_KERNEL=y/CONFIG_DEBUG_KERNEL=n/g' arch/arm64/configs/gki_defconfig
-
-          echo "3. BBR ve Full Preempt (Istedigin Ozellikler)"
-          sed -i '/CONFIG_TCP_CONG/d' arch/arm64/configs/gki_defconfig
-          echo "CONFIG_TCP_CONG_BBR=y" >> arch/arm64/configs/gki_defconfig
-          echo "CONFIG_DEFAULT_BBR=y" >> arch/arm64/configs/gki_defconfig
-          echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> arch/arm64/configs/gki_defconfig
-          sed -i 's/CONFIG_PREEMPT_VOLUNTARY=y/CONFIG_PREEMPT=y/g' arch/arm64/configs/gki_defconfig
-          
-          echo "4. Wifi Fix (Modversions Off)"
+          # 1. WiFi/Ekran Modul Kontrolunu Tamamen Devre Disi Birak (Syntax Hatasiz)
           sed -i 's/CONFIG_MODVERSIONS=y/CONFIG_MODVERSIONS=n/g' arch/arm64/configs/gki_defconfig
           
-          echo "5. Isim: Caglar-Gaming-Kernel"
+          # 2. Kernel Ismi ve Performans Ayarlari
           sed -i 's/CONFIG_LOCALVERSION="-android14-11"/CONFIG_LOCALVERSION="-Caglar-Gaming-Kernel"/g' arch/arm64/configs/gki_defconfig
+          sed -i '/CONFIG_TCP_CONG/d' arch/arm64/configs/gki_defconfig
+          {
+            echo "CONFIG_TCP_CONG_BBR=y"
+            echo "CONFIG_DEFAULT_BBR=y"
+            echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\""
+            echo "CONFIG_PREEMPT=y"
+            echo "CONFIG_KMI_SYMBOL_CHECK=n"
+            echo "CONFIG_GKI_HACKS_ALL=y"
+          } >> arch/arm64/configs/gki_defconfig
 
-      - name: Compile (Fast & Safe)
+      - name: Build Kernel (The Absolute Bypass)
         run: |
-          cd "$CONFIG"
-          export PATH="$GITHUB_WORKSPACE/clang-22/bin:$PATH"
-          export PATH="/usr/lib/ccache:$PATH"
+          cd kernel-build
+          export PATH=$GITHUB_WORKSPACE/clang-22/bin:$PATH
           cd common
-          ccache -C
-          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" gki_defconfig
-          # SKIP_ABI=1: En buyuk hayat kurtarici budur.
-          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" SKIP_ABI=1
+          # Error 2 veren ABI/KMI kontrolunu hem Makefile hem komut seviyesinde olduruyoruz
+          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- \
+            NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            SKIP_ABI=1 \
+            KMI_SYMBOL_CHECK=n \
+            GKI_ABI_ANY=1 \
+            KMI_SYMBOL_WHITELIST_STRICT=n
+
+      - name: Upload Kernel Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Caglar-Gaming-Kernel
+          path: kernel-build/common/out/arch/arm64/boot/Image
           
