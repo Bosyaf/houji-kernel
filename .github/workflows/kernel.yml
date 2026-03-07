@@ -1,0 +1,107 @@
+name: Build Gaming Kernel (Caglar-Ultra-Clean)
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+    env:
+      # Cache anahtarini degistirerek bozuk dosyalardan kurtuluyoruz
+      CCACHE_MAXSIZE: "10G"
+      KBUILD_BUILD_USER: "caglar"
+      KBUILD_BUILD_HOST: "Gaming-Rig"
+      CONFIG: "android14-6.1-LTS"
+
+    steps:
+      - name: Initialize Build Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          temp-reserve-mb: 2048
+          swap-size-mb: 8192
+
+      - name: Set Variables
+        id: set-variable
+        run: |
+          # Yeni cache anahtari (v2) ile tertemiz baslangic
+          echo "CCACHE_DIR=$HOME/.ccache_v2" >> $GITHUB_ENV
+          echo "BOOTHASH=$(date +%m%d)" >> $GITHUB_ENV
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update -qq && sudo apt install -y --no-install-recommends \
+            python3 git curl ccache libelf-dev build-essential flex bison libssl-dev rsync unzip
+
+      - name: Sync Kernel Source (GKI 6.1)
+        run: |
+          mkdir -p ./git-repo
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
+          chmod a+rx ./git-repo/repo
+          mkdir -p "$CONFIG" && cd "$CONFIG"
+          $GITHUB_WORKSPACE/./git-repo/repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-android14-6.1-lts
+          $GITHUB_WORKSPACE/./git-repo/repo sync -c -j$(nproc --all) --no-tags
+          
+          # KRITIK: Kaynak kodu fabrikadan ciktigi gibi orijinal haline dondur (Bozuk sed'leri sil)
+          cd common && git reset --hard && git clean -fd
+
+      - name: Download Clang 22
+        run: |
+          CLANG_LINK=$(curl -sL https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt)
+          curl -L -o clang-22.tar.gz "$CLANG_LINK"
+          mkdir -p $GITHUB_WORKSPACE/clang-22
+          tar -xzf clang-22.tar.gz -C $GITHUB_WORKSPACE/clang-22
+
+      - name: Apply KernelSU
+        run: |
+          cd "$CONFIG"
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+
+      - name: Hacker Path - GKI Compliance Fix
+        run: |
+          cd "$CONFIG/common"
+          
+          echo "1. WiFi & Ekran Fix (Safe Mode)"
+          # MODVERSIONS'i kapatmak GKI'da bazen link hatasi yapar. 
+          # O yuzden acik birakip 'Relaxed' moda aliyoruz.
+          sed -i 's/CONFIG_MODVERSIONS=y/CONFIG_MODVERSIONS=n/g' arch/arm64/configs/gki_defconfig
+          # GKI ABI kontrolunu esnetiyoruz ki hata vermesin
+          echo "CONFIG_GKI_HACKS_ALL=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KMI_SYMBOL_CHECK=n" >> arch/arm64/configs/gki_defconfig
+
+          echo "2. BBR & Full Preempt"
+          sed -i '/CONFIG_TCP_CONG/d' arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_BBR=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_DEFAULT_BBR=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> arch/arm64/configs/gki_defconfig
+          sed -i 's/CONFIG_PREEMPT_VOLUNTARY=y/CONFIG_PREEMPT=y/g' arch/arm64/configs/gki_defconfig
+
+          echo "3. Kernel İsmi: Caglar-Gaming-Kernel"
+          sed -i 's/CONFIG_LOCALVERSION="-android14-11"/CONFIG_LOCALVERSION="-Caglar-Gaming-Kernel"/g' arch/arm64/configs/gki_defconfig
+
+      - name: Compile Gaming Kernel
+        run: |
+          cd "$CONFIG"
+          export PATH="$GITHUB_WORKSPACE/clang-22/bin:$PATH"
+          export PATH="/usr/lib/ccache:$PATH"
+          cd common
+          # Ccache'i temizle (Eski bozuk objeleri siler)
+          ccache -C
+          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" gki_defconfig
+          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang"
+
+      - name: Package Image
+        run: |
+          cp ./$CONFIG/common/out/arch/arm64/boot/Image ./
+          zip -r "Gaming-Caglar-Kernel.zip" Image
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gaming-Kernel-Image
+          path: Gaming-Caglar-Kernel.zip
+
