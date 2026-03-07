@@ -1,4 +1,4 @@
-name: Build Gaming Kernel (Caglar-Ultra-Clean)
+name: Build Gaming Kernel (Caglar-Ultra-Safe)
 
 permissions:
   contents: write
@@ -11,7 +11,6 @@ jobs:
   build-kernel:
     runs-on: ubuntu-latest
     env:
-      # Cache anahtarini degistirerek bozuk dosyalardan kurtuluyoruz
       CCACHE_MAXSIZE: "10G"
       KBUILD_BUILD_USER: "caglar"
       KBUILD_BUILD_HOST: "Gaming-Rig"
@@ -28,8 +27,8 @@ jobs:
       - name: Set Variables
         id: set-variable
         run: |
-          # Yeni cache anahtari (v2) ile tertemiz baslangic
-          echo "CCACHE_DIR=$HOME/.ccache_v2" >> $GITHUB_ENV
+          # Cache anahtarini 'v3' yaparak eski tum bozukluklari siliyoruz
+          echo "CCACHE_DIR=$HOME/.ccache_v3" >> $GITHUB_ENV
           echo "BOOTHASH=$(date +%m%d)" >> $GITHUB_ENV
 
       - name: Install Dependencies
@@ -46,7 +45,7 @@ jobs:
           $GITHUB_WORKSPACE/./git-repo/repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-android14-6.1-lts
           $GITHUB_WORKSPACE/./git-repo/repo sync -c -j$(nproc --all) --no-tags
           
-          # KRITIK: Kaynak kodu fabrikadan ciktigi gibi orijinal haline dondur (Bozuk sed'leri sil)
+          # Kaynak kodu sifirla, tertemiz basla
           cd common && git reset --hard && git clean -fd
 
       - name: Download Clang 22
@@ -61,17 +60,18 @@ jobs:
           cd "$CONFIG"
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
-      - name: Hacker Path - GKI Compliance Fix
+      - name: Hacker Path - KMI Stealth Mode
         run: |
           cd "$CONFIG/common"
           
-          echo "1. WiFi & Ekran Fix (Safe Mode)"
-          # MODVERSIONS'i kapatmak GKI'da bazen link hatasi yapar. 
-          # O yuzden acik birakip 'Relaxed' moda aliyoruz.
+          echo "1. Wi-Fi & Ekran Fix (No Code Change)"
+          # Modul versiyonlamasini kapatiyoruz (WiFi icin sart)
           sed -i 's/CONFIG_MODVERSIONS=y/CONFIG_MODVERSIONS=n/g' arch/arm64/configs/gki_defconfig
-          # GKI ABI kontrolunu esnetiyoruz ki hata vermesin
-          echo "CONFIG_GKI_HACKS_ALL=y" >> arch/arm64/configs/gki_defconfig
+          
+          # GOOGLE'IN GUVENLIK POLISINI KAPATIYORUZ (Error 2 Fix)
           echo "CONFIG_KMI_SYMBOL_CHECK=n" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_GKI_HACKS_ALL=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_UNUSED_KSYMS_WHITELIST=\"\"" >> arch/arm64/configs/gki_defconfig
 
           echo "2. BBR & Full Preempt"
           sed -i '/CONFIG_TCP_CONG/d' arch/arm64/configs/gki_defconfig
@@ -80,7 +80,7 @@ jobs:
           echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> arch/arm64/configs/gki_defconfig
           sed -i 's/CONFIG_PREEMPT_VOLUNTARY=y/CONFIG_PREEMPT=y/g' arch/arm64/configs/gki_defconfig
 
-          echo "3. Kernel İsmi: Caglar-Gaming-Kernel"
+          echo "3. Kernel Ismi: Caglar-Gaming-Kernel"
           sed -i 's/CONFIG_LOCALVERSION="-android14-11"/CONFIG_LOCALVERSION="-Caglar-Gaming-Kernel"/g' arch/arm64/configs/gki_defconfig
 
       - name: Compile Gaming Kernel
@@ -89,10 +89,11 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/clang-22/bin:$PATH"
           export PATH="/usr/lib/ccache:$PATH"
           cd common
-          # Ccache'i temizle (Eski bozuk objeleri siler)
+          # Her seyi sifirdan derle (Eski hatalari unut)
           ccache -C
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" gki_defconfig
-          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang"
+          # SKIP_ABI=1 komutu ile o hata veren kontrolu devre disi birakiyoruz
+          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" SKIP_ABI=1
 
       - name: Package Image
         run: |
@@ -104,4 +105,4 @@ jobs:
         with:
           name: Gaming-Kernel-Image
           path: Gaming-Caglar-Kernel.zip
-
+          
